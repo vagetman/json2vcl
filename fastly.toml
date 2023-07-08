@@ -1,0 +1,24 @@
+# This file describes a Fastly Compute@Edge package. To learn more visit:
+# https://developer.fastly.com/reference/fastly-toml/
+
+authors = [""]
+description = ""
+language = "javascript"
+manifest_version = 2
+name = "json2vcl"
+#service_id = "AIE7dwtCWF0oSVUZfe6ba7"
+
+[local_server]
+
+  [local_server.backends]
+
+    [local_server.backends.fastly_api]
+      url = "https://api.fastly.com"
+
+[setup]
+
+  [setup.backends]
+
+    [setup.backends.fastly_api]
+      address = "api.fastly.com"
+      port = 443
