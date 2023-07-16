@@ -143,7 +143,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
               var match_list = c_value.split(' ');
 
-              build_condition(match_list, matches_idx, `req.cookie:${c_name}`);
+              build_condition(match_list, matches_idx, `req.http.cookie:${c_name}`);
               break;
 
             case 'extension':
