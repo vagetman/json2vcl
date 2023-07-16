@@ -106,7 +106,8 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
       } else {
 
         // add header
-        cloudlet_redirect_logic += '\n  if ' + '('.repeat(value.matches.length);
+        cloudlet_redirect_logic += key == 0 ? '\n  if ' : ' elseif ';
+        cloudlet_redirect_logic += '('.repeat(value.matches.length);
         for (const [matches_idx, matches_val] of Object.entries(value.matches)) {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
