@@ -81,8 +81,12 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
   // console.log("data received", data);
 
+  // define placeholders go populate later
   var strict_redirects = [];
   var response = "";
+
+  // this going to enumerate custom conditions 
+  var first_if = "0";
 
   for (const [key, value] of Object.entries(data.matchRules)) {
     // console.log(key + " -> " + JSON.stringify(data.matchRules[key], null, 2));
@@ -105,8 +109,11 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         }
       } else {
 
-        // add header
-        cloudlet_redirect_logic += key == 0 ? '\n  if ' : ' elseif ';
+        // add conditition header
+        // the first custom condition should start with `if` while rest should be `elseif`
+        cloudlet_redirect_logic += first_if == 0 ? '\n  if ' : ' elseif ';
+        first_if++;
+
         cloudlet_redirect_logic += '('.repeat(value.matches.length);
         for (const [matches_idx, matches_val] of Object.entries(value.matches)) {
           console.log(`'matchType' = ${matches_val.matchType}`);
@@ -116,7 +123,11 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               if (matches_idx > 0) {
                 cloudlet_redirect_logic += ') && (';
               }
-              cloudlet_redirect_logic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
+              if (matches_val.negate) {
+                cloudlet_redirect_logic += `var.cust_full_path !~ "${matches_val.matchValue}"`;
+              } else {
+                cloudlet_redirect_logic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
+              }
               break;
 
             case 'query':
@@ -124,32 +135,32 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               var match_list = qs_value.split(' ');
 
               var match_operand = `querystring.get(req.url, "${qs_name}")`;
-              build_condition(match_list, matches_idx, match_operand);
+              build_condition(match_list, matches_idx, match_operand, matches_val.negate);
               break;
 
             case 'hostname':
               var match_list = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.http.host');
+              build_condition(match_list, matches_idx, 'req.http.host', matches_val.negate);
               break;
 
             case 'path':
               var match_list = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.url.path');
+              build_condition(match_list, matches_idx, 'req.url.path', matches_val.negate);
               break;
 
             case 'cookie':
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
               var match_list = c_value.split(' ');
 
-              build_condition(match_list, matches_idx, `req.http.cookie:${c_name}`);
+              build_condition(match_list, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate);
               break;
 
             case 'extension':
               var match_list = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.url.ext');
+              build_condition(match_list, matches_idx, 'req.url.ext', matches_val.negate);
               break;
 
             default:
@@ -264,17 +275,17 @@ router.all("(.*)", async (req, res) => {
 
 router.listen();
 
-function build_condition(match_list, matches_idx, match_operand) {
+function build_condition(match_list, matches_idx, match_operand, negate) {
   // go over all space separated values
   for (let value_idx = 0; value_idx < match_list.length; value_idx++) {
     // when wildcard characters present, the strict match has to be converted to regex
     var wildcard = /(\?|\*)/;
     if (wildcard.test(match_list[value_idx])) {
       var eval_matchURL = match_list[value_idx].replace(/(\?|\*)/g, ".$1");
-      var eval_operator = "~";
+      var eval_operator = negate ? "!~" : "~";
     } else {
       var eval_matchURL = match_list[value_idx];
-      var eval_operator = "==";
+      var eval_operator = negate ? "!=" : "==";
     }
 
     if (value_idx == 0) {
