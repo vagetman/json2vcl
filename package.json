@@ -4,20 +4,15 @@
     "@fastly/js-compute": "^3.1.1"
   },
   "devDependencies": {
-    "buffer": "6.0.3",
-    "crypto-browserify": "3.12.0",
-    "eslint": "^8.45.0",
-    "stream-browserify": "3.0.0",
-    "webpack": "^5.88.1",
-    "webpack-cli": "^5.1.4"
+    "eslint": "^8.45.0"
   },
   "license": "MIT",
+  "type": "module",
   "main": "src/index.js",
   "name": "fiddle",
   "scripts": {
-    "build": "js-compute-runtime bin/index.js bin/main.wasm",
-    "deploy": "npm run build && fastly compute deploy",
-    "prebuild": "webpack"
+    "build": "js-compute-runtime src/index.js bin/main.wasm",
+    "deploy": "npm run build && fastly compute deploy"
   },
   "version": "0.0.0"
 }
