@@ -1,14 +1,14 @@
 {
   "dependencies": {
-    "@fastly/expressly": "^1.2.0",
-    "@fastly/js-compute": "^1.4.2"
+    "@fastly/expressly": "^1.4.0",
+    "@fastly/js-compute": "^3.1.1"
   },
   "devDependencies": {
     "buffer": "6.0.3",
     "crypto-browserify": "3.12.0",
-    "eslint": "^8.32.0",
+    "eslint": "^8.45.0",
     "stream-browserify": "3.0.0",
-    "webpack": "^5.75.0",
+    "webpack": "^5.88.1",
     "webpack-cli": "^5.1.4"
   },
   "license": "MIT",
