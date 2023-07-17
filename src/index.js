@@ -10,10 +10,10 @@ import {
 const API_BACKEND = "fastly_api";
 const router = new Router();
 
-var baseURL = "https://api.fastly.com/service/";
+let baseURL = "https://api.fastly.com/service/";
 
 // a JSON string must be treatened 
-String.prototype.escapeSpecialChars = function() {
+String.prototype.escapeSpecialChars = function () {
   return this.replace(/\\n/g, "\\n")
     .replace(/\\'/g, "\\'")
     .replace(/\\"/g, '\\"')
@@ -27,7 +27,7 @@ String.prototype.escapeSpecialChars = function() {
 const JsonContentType = "application/json";
 
 // define a template, which we will populate with code later.
-var vcl_snippets = {
+let vcl_snippets = {
   "cloudlet_redirect_table": {
     "type": "init",
     "vcl": ""
@@ -42,8 +42,8 @@ var vcl_snippets = {
   }
 };
 
-var cloudlet_redirect_table = "\n// cloudlet_redirect_table begins\n\ntable path_redirect {\n";
-var cloudlet_redirect_logic = `\n// cloudlet_redirect_logic begins
+let cloudlet_redirect_table = "\n// cloudlet_redirect_table begins\n\ntable path_redirect {\n";
+let cloudlet_redirect_logic = `\n// cloudlet_redirect_logic begins
 
 declare local var.cust_location STRING;
 declare local var.cust_priority STRING;
@@ -53,7 +53,7 @@ declare local var.cust_full_path STRING;
 
 set var.cust_full_path = "https://" + req.http.host + req.url.path;\n`;
 
-var cloudlet_redirect_handler = `  # Cloudlet Redirect handler
+let cloudlet_redirect_handler = `  # Cloudlet Redirect handler
   if (obj.status == 777) {
     set obj.status = std.atoi(req.http.X-Response-Code);
     if (obj.status == 301 || obj.status == 302) {
@@ -67,8 +67,8 @@ var cloudlet_redirect_handler = `  # Cloudlet Redirect handler
 
 // If the URL begins with /cloudlet/er/service/
 router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
-  var serviceId = req.params.serviceId;
-  var key = req.headers.get("Fastly-Key");
+  let serviceId = req.params.serviceId;
+  let key = req.headers.get("Fastly-Key");
   if (key == null) {
     let resp = new Response("`Fastly-Key` header must be speficied\n");
     // Construct a new response using the new data but original status.
@@ -81,24 +81,25 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   // console.log("data received", data);
 
   // define placeholders go populate later
-  var strict_redirects = [];
-  var response = "";
+  let strict_redirects = [];
+  let response = "";
 
   // this going to enumerate custom conditions 
-  var first_if = "0";
+  let first_if = "0";
 
   for (const [key, value] of Object.entries(data.matchRules)) {
     // console.log(key + " -> " + JSON.stringify(data.matchRules[key], null, 2));
-    var status_code = typeof value.statusCode == 'undefined' ? '301' : value.statusCode;
+    let status_code = typeof value.statusCode == 'undefined' ? '301' : value.statusCode;
     if (value.type == "erMatchRule") {
       // console.log("erMatchRule rule found");
 
       if (value.matchURL !== null) {
         // A strict match case, use edge dictionary table
+        let cust_use_query_string
         if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
-          var cust_use_query_string = "useQS";
+          cust_use_query_string = "useQS";
         } else {
-          var cust_use_query_string = "noQS";
+          cust_use_query_string = "noQS";
         }
         if (strict_redirects.includes(value.matchURL)) {
           response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
@@ -117,7 +118,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         for (const [matches_idx, matches_val] of Object.entries(value.matches)) {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
-            case 'regex':
+            case 'regex': {
               // 2+ match rules are treated as a logical AND
               if (matches_idx > 0) {
                 cloudlet_redirect_logic += ') && (';
@@ -128,52 +129,54 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
                 cloudlet_redirect_logic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
               }
               break;
-
-            case 'query':
+            }
+            case 'query': {
               let [qs_name, qs_value] = matches_val.matchValue.split(/=(.*)/s);
-              var match_list = qs_value.split(' ');
+              let match_list = qs_value.split(' ');
 
-              var match_operand = `querystring.get(req.url, "${qs_name}")`;
+              let match_operand = `querystring.get(req.url, "${qs_name}")`;
               build_condition(match_list, matches_idx, match_operand, matches_val.negate);
               break;
-
-            case 'hostname':
-              var match_list = matches_val.matchValue.split(' ');
+            }
+            case 'hostname': {
+              let match_list = matches_val.matchValue.split(' ');
 
               build_condition(match_list, matches_idx, 'req.http.host', matches_val.negate);
               break;
-
-            case 'path':
-              var match_list = matches_val.matchValue.split(' ');
+            }
+            case 'path': {
+              let match_list = matches_val.matchValue.split(' ');
 
               build_condition(match_list, matches_idx, 'req.url.path', matches_val.negate);
               break;
-
-            case 'cookie':
+            }
+            case 'cookie': {
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
-              var match_list = c_value.split(' ');
+              let match_list = c_value.split(' ');
 
               build_condition(match_list, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate);
               break;
+            }
 
-            case 'extension':
-              var match_list = matches_val.matchValue.split(' ');
+            case 'extension': {
+              let match_list = matches_val.matchValue.split(' ');
 
               build_condition(match_list, matches_idx, 'req.url.ext', matches_val.negate);
               break;
-
+            }
             default:
               console.log('Unknown `matchType: `', matches_idx.matchType, 'skipped');
           }
         }
         // add rule footer
         // replace \1 like regex with Fastly regex group
-        var location = value.redirectURL.replace(/\\(\d)/g, '\" + re.group.$1 + "');
+        let location = value.redirectURL.replace(/\\(\d)/g, '" + re.group.$1 + "');
         // add an indicator to `useIncomingQueryString` value, if present
-        if (typeof value.useIncomingQueryString !== undefined && value.useIncomingQueryString == true) {
-          var cust_use_query_string = "useQS";
+        let cust_use_query_string;
+        if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
+          cust_use_query_string = "useQS";
         } else {
-          var cust_use_query_string = "noQS";
+          cust_use_query_string = "noQS";
         }
         cloudlet_redirect_logic += ')'.repeat(value.matches.length) + ` {
     set var.cust_location = "${location}";
@@ -278,13 +281,15 @@ function build_condition(match_list, matches_idx, match_operand, negate) {
   // go over all space separated values
   for (let value_idx = 0; value_idx < match_list.length; value_idx++) {
     // when wildcard characters present, the strict match has to be converted to regex
-    var wildcard = /(\?|\*)/;
+    let wildcard = /(\?|\*)/;
+    let eval_matchURL;
+    let eval_operator;
     if (wildcard.test(match_list[value_idx])) {
-      var eval_matchURL = match_list[value_idx].replace(/(\?|\*)/g, ".$1");
-      var eval_operator = negate ? "!~" : "~";
+      eval_matchURL = match_list[value_idx].replace(/(\?|\*)/g, ".$1");
+      eval_operator = negate ? "!~" : "~";
     } else {
-      var eval_matchURL = match_list[value_idx];
-      var eval_operator = negate ? "!=" : "==";
+      eval_matchURL = match_list[value_idx];
+      eval_operator = negate ? "!=" : "==";
     }
 
     if (value_idx == 0) {
@@ -376,6 +381,7 @@ async function upload_snippets(sid, key, ver) {
         "Accept": JsonContentType
       }
     });
+    // eslint-disable-next-line no-unused-vars
     let resp = await beresp.json();
     console.log("Uploading snippet `encoded_redirect_table`");
     // console.log("Uploading snippet `encoded_redirect_table` - " + JSON.stringify(resp, null, 2));
