@@ -9,7 +9,6 @@ import {
 
 const API_BACKEND = "fastly_api";
 const router = new Router();
-let backendResponse;
 
 var baseURL = "https://api.fastly.com/service/";
 
