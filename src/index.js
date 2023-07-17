@@ -95,7 +95,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
       if (value.matchURL !== null) {
         // A strict match case, use edge dictionary table
-        if (typeof value.useIncomingQueryString !== undefined && value.useIncomingQueryString == true) {
+        if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
           var cust_use_query_string = "useQS";
         } else {
           var cust_use_query_string = "noQS";
