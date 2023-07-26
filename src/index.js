@@ -42,8 +42,8 @@ let vcl_snippets = {
   }
 };
 
-let cloudlet_redirect_table = "\n// cloudlet_redirect_table begins\n\ntable path_redirect {\n";
-let cloudlet_redirect_logic = `\n// cloudlet_redirect_logic begins
+let cloudletRedirectTable = "\n// cloudlet_redirect_table begins\n\ntable path_redirect {\n";
+let cloudletRedirectLogic = `\n// cloudlet_redirect_logic begins
 
 declare local var.cust_location STRING;
 declare local var.cust_priority STRING;
@@ -53,7 +53,7 @@ declare local var.cust_full_path STRING;
 
 set var.cust_full_path = "https://" + req.http.host + req.url.path;\n`;
 
-let cloudlet_redirect_handler = `  # Cloudlet Redirect handler
+let cloudletRedirectHandler = `  # Cloudlet Redirect handler
   if (obj.status == 777) {
     set obj.status = std.atoi(req.http.X-Response-Code);
     if (obj.status == 301 || obj.status == 302) {
@@ -81,11 +81,11 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   // console.log("data received", data);
 
   // define placeholders go populate later
-  let strict_redirects = [];
+  let strictRedirects = [];
   let response = "";
 
   // this going to enumerate custom conditions 
-  let first_if = "0";
+  let firstCondition = "0";
 
   for (const [key, value] of Object.entries(data.matchRules)) {
     // console.log(key + " -> " + JSON.stringify(data.matchRules[key], null, 2));
@@ -101,32 +101,32 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         } else {
           cust_use_query_string = "noQS";
         }
-        if (strict_redirects.includes(value.matchURL)) {
+        if (strictRedirects.includes(value.matchURL)) {
           response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
         } else {
-          strict_redirects.push(value.matchURL);
-          cloudlet_redirect_table += `  "${value.matchURL}" : "${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
+          strictRedirects.push(value.matchURL);
+          cloudletRedirectTable += `  "${value.matchURL}" : "${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
         }
       } else {
 
         // add conditition header
         // the first custom condition should start with `if` while rest should be `elseif`
-        cloudlet_redirect_logic += first_if == 0 ? '\n  if ' : ' elseif ';
-        first_if++;
+        cloudletRedirectLogic += firstCondition == 0 ? '\n  if ' : ' elseif ';
+        firstCondition++;
 
-        cloudlet_redirect_logic += '('.repeat(value.matches.length);
+        cloudletRedirectLogic += '('.repeat(value.matches.length);
         for (const [matches_idx, matches_val] of Object.entries(value.matches)) {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
             case 'regex': {
               // 2+ match rules are treated as a logical AND
               if (matches_idx > 0) {
-                cloudlet_redirect_logic += ') && (';
+                cloudletRedirectLogic += ') && (';
               }
               if (matches_val.negate) {
-                cloudlet_redirect_logic += `var.cust_full_path !~ "${matches_val.matchValue}"`;
+                cloudletRedirectLogic += `var.cust_full_path !~ "${matches_val.matchValue}"`;
               } else {
-                cloudlet_redirect_logic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
+                cloudletRedirectLogic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
               }
               break;
             }
@@ -134,34 +134,34 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               let [qs_name, qs_value] = matches_val.matchValue.split(/=(.*)/s);
               let match_list = qs_value.split(' ');
 
-              let match_operand = `querystring.get(req.url, "${qs_name}")`;
-              build_condition(match_list, matches_idx, match_operand, matches_val.negate);
+              let matchOperand = `querystring.get(req.url, "${qs_name}")`;
+              buildCondition(match_list, matches_idx, matchOperand, matches_val.negate);
               break;
             }
             case 'hostname': {
-              let match_list = matches_val.matchValue.split(' ');
+              let matchList = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.http.host', matches_val.negate);
+              buildCondition(matchList, matches_idx, 'req.http.host', matches_val.negate);
               break;
             }
             case 'path': {
-              let match_list = matches_val.matchValue.split(' ');
+              let matchList = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.url.path', matches_val.negate);
+              buildCondition(matchList, matches_idx, 'req.url.path', matches_val.negate);
               break;
             }
             case 'cookie': {
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
-              let match_list = c_value.split(' ');
+              let matchList = c_value.split(' ');
 
-              build_condition(match_list, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate);
+              buildCondition(matchList, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate);
               break;
             }
 
             case 'extension': {
-              let match_list = matches_val.matchValue.split(' ');
+              let matchList = matches_val.matchValue.split(' ');
 
-              build_condition(match_list, matches_idx, 'req.url.ext', matches_val.negate);
+              buildCondition(matchList, matches_idx, 'req.url.ext', matches_val.negate);
               break;
             }
             default:
@@ -178,14 +178,10 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           cust_use_query_string = "noQS";
         }
 
-        // replace \1 -like regex group with Fastly style regex group
-        let location = '{"' + value.redirectURL.replace(/\\([1-9])/g, '"} + re.group.$1 + {"') + '"};';
-
-        // cleanup `location` value
-        location = location.replace(/ \+ {\"\"};$/, ';');
+        let location = processLocation(value.redirectURL);
 
         // add rule footer
-        cloudlet_redirect_logic += ')'.repeat(value.matches.length) + ` {
+        cloudletRedirectLogic += ')'.repeat(value.matches.length) + ` {
     set var.cust_location = ${location}
     set var.cust_priority = "${key}";
     set var.cust_status_code = "${status_code}";
@@ -196,9 +192,9 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   }
 
   // complete the redirect table
-  cloudlet_redirect_table += '}\n';
+  cloudletRedirectTable += '}\n';
 
-  cloudlet_redirect_logic += `
+  cloudletRedirectLogic += `
 
   declare local var.dict_result STRING;
   declare local var.dict_location STRING;
@@ -251,15 +247,15 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 `;
 
   // update snippets' code
-  vcl_snippets.cloudlet_redirect_table.vcl = cloudlet_redirect_table.escapeSpecialChars();
-  vcl_snippets.cloudlet_redirect_logic.vcl = cloudlet_redirect_logic.escapeSpecialChars();
-  vcl_snippets.cloudlet_redirect_handler.vcl = cloudlet_redirect_handler.escapeSpecialChars();
+  vcl_snippets.cloudlet_redirect_table.vcl = cloudletRedirectTable.escapeSpecialChars();
+  vcl_snippets.cloudlet_redirect_logic.vcl = cloudletRedirectLogic.escapeSpecialChars();
+  vcl_snippets.cloudlet_redirect_handler.vcl = cloudletRedirectHandler.escapeSpecialChars();
 
-  let active_ver = await get_active_service(serviceId, key);
-  let cloned_ver = await clone_active_version(serviceId, key, active_ver);
-  await delete_snippets(serviceId, key, cloned_ver);
-  await upload_snippets(serviceId, key, cloned_ver);
-  await active_version(serviceId, key, cloned_ver);
+  let active_ver = await getActiveService(serviceId, key);
+  let cloned_ver = await cloneActiveVersion(serviceId, key, active_ver);
+  await deleteSnippets(serviceId, key, cloned_ver);
+  await uploadSnippets(serviceId, key, cloned_ver);
+  await activeVersion(serviceId, key, cloned_ver);
 
   const resp = new Response(response);
 
@@ -284,33 +280,52 @@ router.all("(.*)", async (req, res) => {
 
 router.listen();
 
-function build_condition(match_list, matches_idx, match_operand, negate) {
+// go over several cases for URL-encoded destinations and regex groups 
+function processLocation(redirectURL) {
+  let location = "";
+  if (redirectURL.includes("%")) {
+    // make it a long-string
+    location = `{"${redirectURL}"};`; 
+    // replace \1 -like regex group with Fastly style regex group
+    location = location.replace(/\\([1-9])\"};$/, '"} + re.group.$1;');
+    location = location.replace(/\\([1-9])/g, '"} + re.group.$1 + {"');
+  } else {
+    // make it a short-string
+    location = `"${redirectURL}";`;
+    // replace \1 -like regex group with Fastly style regex group
+    location = location.replace(/\\([1-9])\";/, '" + re.group.$1;');
+    location = location.replace(/\\([1-9])/g, '" + re.group.$1 + "');
+  }
+  return location;
+}
+
+function buildCondition(matchList, matches_idx, match_operand, negate) {
   // go over all space separated values
-  for (let value_idx = 0; value_idx < match_list.length; value_idx++) {
+  for (let value_idx = 0; value_idx < matchList.length; value_idx++) {
     // when wildcard characters present, the strict match has to be converted to regex
     let wildcard = /([?*])/;
     let eval_matchURL;
     let eval_operator;
-    if (wildcard.test(match_list[value_idx])) {
-      eval_matchURL = match_list[value_idx].replace(/([?*])/g, ".$1");
+    if (wildcard.test(matchList[value_idx])) {
+      eval_matchURL = matchList[value_idx].replace(/([?*])/g, ".$1");
       eval_operator = negate ? "!~" : "~";
     } else {
-      eval_matchURL = match_list[value_idx];
+      eval_matchURL = matchList[value_idx];
       eval_operator = negate ? "!=" : "==";
     }
 
     if (value_idx == 0) {
       // 2+ match rules are treated as a logical AND
-      cloudlet_redirect_logic += matches_idx > 0 ? ') && (' : '';
+      cloudletRedirectLogic += matches_idx > 0 ? ') && (' : '';
     } else {
       // items in a space separated list are treated as logical OR
-      cloudlet_redirect_logic += ` || `;
+      cloudletRedirectLogic += ` || `;
     }
-    cloudlet_redirect_logic += `${match_operand} ${eval_operator} "${eval_matchURL}"`;
+    cloudletRedirectLogic += `${match_operand} ${eval_operator} "${eval_matchURL}"`;
   }
 }
 
-async function get_active_service(sid, key) {
+async function getActiveService(sid, key) {
   let serviceURL = baseURL + sid;
   let newReq = new Request(serviceURL);
 
@@ -333,7 +348,7 @@ async function get_active_service(sid, key) {
   // console.log(await beresp.json());
 }
 
-async function clone_active_version(sid, key, ver) {
+async function cloneActiveVersion(sid, key, ver) {
   let serviceURL = `${baseURL}${sid}/version/${ver}/clone`;
   let newReq = new Request(serviceURL);
   let beresp = await fetch(newReq, {
@@ -349,7 +364,7 @@ async function clone_active_version(sid, key, ver) {
   return resp.number;
 }
 
-async function delete_snippets(sid, key, ver) {
+async function deleteSnippets(sid, key, ver) {
   // /service/service_id/version/version_id/snippet/snippet_name
   for (const snippet of Object.keys(vcl_snippets)) {
     let serviceURL = `${baseURL}${sid}/version/${ver}/snippet/${snippet}`;
@@ -366,7 +381,7 @@ async function delete_snippets(sid, key, ver) {
   }
 }
 
-async function upload_snippets(sid, key, ver) {
+async function uploadSnippets(sid, key, ver) {
   let serviceURL = `${baseURL}${sid}/version/${ver}/snippet`;
   for (const [snippet, attrs] of Object.entries(vcl_snippets)) {
     let json_snippet = {
@@ -395,7 +410,7 @@ async function upload_snippets(sid, key, ver) {
   }
 }
 
-async function active_version(sid, key, ver) {
+async function activeVersion(sid, key, ver) {
   let serviceURL = `${baseURL}${sid}/version/${ver}/activate`;
   let newReq = new Request(serviceURL);
   let beresp = await fetch(newReq, {
