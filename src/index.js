@@ -57,7 +57,7 @@ let cloudlet_redirect_handler = `  # Cloudlet Redirect handler
   if (obj.status == 777) {
     set obj.status = std.atoi(req.http.X-Response-Code);
     if (obj.status == 301 || obj.status == 302) {
-      set obj.http.Location = obj.response;
+      set obj.http.Location = urldecode(obj.response);
       set obj.response = if(obj.status == 301, "Moved Permanently", "Found");
     }
     synthetic if(req.http.X-Response-Body, req.http.X-Response-Body, "");
@@ -168,9 +168,8 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               console.log('Unknown `matchType: `', matches_idx.matchType, 'skipped');
           }
         }
-        // add rule footer
-        // replace \1 like regex with Fastly regex group
-        let location = value.redirectURL.replace(/\\(\d)/g, '" + re.group.$1 + "');
+
+        // prepare rule footer
         // add an indicator to `useIncomingQueryString` value, if present
         let cust_use_query_string;
         if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
@@ -178,8 +177,16 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         } else {
           cust_use_query_string = "noQS";
         }
+
+        // replace \1 -like regex group with Fastly style regex group
+        let location = '"' + value.redirectURL.replace(/\\([1-9])/g, '" + re.group.$1 + "') + '"';
+
+        // cleanup `location` value
+        location = location.replace(/ \+ \"\"$/, '');
+
+        // add rule footer
         cloudlet_redirect_logic += ')'.repeat(value.matches.length) + ` {
-    set var.cust_location = "${location}";
+    set var.cust_location = ${location};
     set var.cust_priority = "${key}";
     set var.cust_status_code = "${status_code}";
     set var.cust_use_query_string = "${cust_use_query_string}";
@@ -281,11 +288,11 @@ function build_condition(match_list, matches_idx, match_operand, negate) {
   // go over all space separated values
   for (let value_idx = 0; value_idx < match_list.length; value_idx++) {
     // when wildcard characters present, the strict match has to be converted to regex
-    let wildcard = /(\?|\*)/;
+    let wildcard = /([?*])/;
     let eval_matchURL;
     let eval_operator;
     if (wildcard.test(match_list[value_idx])) {
-      eval_matchURL = match_list[value_idx].replace(/(\?|\*)/g, ".$1");
+      eval_matchURL = match_list[value_idx].replace(/([?*])/g, ".$1");
       eval_operator = negate ? "!~" : "~";
     } else {
       eval_matchURL = match_list[value_idx];
@@ -355,7 +362,7 @@ async function delete_snippets(sid, key, ver) {
       }
     });
     let resp = await beresp.json();
-    console.log("Deleting snippet `" + snippet + "` - " + resp.status);
+    console.log(`Deleting snippet '${snippet}' - ${beresp.status} ${beresp.statusText}`);
   }
 }
 
@@ -383,7 +390,7 @@ async function upload_snippets(sid, key, ver) {
     });
     // eslint-disable-next-line no-unused-vars
     let resp = await beresp.json();
-    console.log("Uploading snippet `encoded_redirect_table`");
+    console.log(`Uploading  snippet '${snippet}' - ${beresp.status} ${beresp.statusText}`);
     // console.log("Uploading snippet `encoded_redirect_table` - " + JSON.stringify(resp, null, 2));
   }
 }
