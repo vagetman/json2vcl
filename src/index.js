@@ -57,7 +57,7 @@ let cloudlet_redirect_handler = `  # Cloudlet Redirect handler
   if (obj.status == 777) {
     set obj.status = std.atoi(req.http.X-Response-Code);
     if (obj.status == 301 || obj.status == 302) {
-      set obj.http.Location = urldecode(obj.response);
+      set obj.http.Location = obj.response;
       set obj.response = if(obj.status == 301, "Moved Permanently", "Found");
     }
     synthetic if(req.http.X-Response-Body, req.http.X-Response-Body, "");
@@ -179,14 +179,14 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         }
 
         // replace \1 -like regex group with Fastly style regex group
-        let location = '"' + value.redirectURL.replace(/\\([1-9])/g, '" + re.group.$1 + "') + '"';
+        let location = '{"' + value.redirectURL.replace(/\\([1-9])/g, '"} + re.group.$1 + {"') + '"};';
 
         // cleanup `location` value
-        location = location.replace(/ \+ \"\"$/, '');
+        location = location.replace(/ \+ {\"\"};$/, ';');
 
         // add rule footer
         cloudlet_redirect_logic += ')'.repeat(value.matches.length) + ` {
-    set var.cust_location = ${location};
+    set var.cust_location = ${location}
     set var.cust_priority = "${key}";
     set var.cust_status_code = "${status_code}";
     set var.cust_use_query_string = "${cust_use_query_string}";
