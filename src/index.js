@@ -12,18 +12,6 @@ const router = new Router();
 
 let baseURL = "https://api.fastly.com/service/";
 
-// a JSON string must be treatened 
-String.prototype.escapeSpecialChars = function () {
-  return this.replace(/\\n/g, "\\n")
-    .replace(/\\'/g, "\\'")
-    .replace(/\\"/g, '\\"')
-    .replace(/\\&/g, "\\&")
-    .replace(/\\r/g, "\\r")
-    .replace(/\\t/g, "\\t")
-    .replace(/\\b/g, "\\b")
-    .replace(/\\f/g, "\\f");
-};
-
 const JsonContentType = "application/json";
 
 // define a template, which we will populate with code later.
@@ -247,9 +235,9 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 `;
 
   // update snippets' code
-  vcl_snippets.cloudlet_redirect_table.vcl = cloudletRedirectTable.escapeSpecialChars();
-  vcl_snippets.cloudlet_redirect_logic.vcl = cloudletRedirectLogic.escapeSpecialChars();
-  vcl_snippets.cloudlet_redirect_handler.vcl = cloudletRedirectHandler.escapeSpecialChars();
+  vcl_snippets.cloudlet_redirect_table.vcl = cloudletRedirectTable;
+  vcl_snippets.cloudlet_redirect_logic.vcl = cloudletRedirectLogic;
+  vcl_snippets.cloudlet_redirect_handler.vcl = cloudletRedirectHandler;
 
   let active_ver = await getActiveService(serviceId, key);
   let cloned_ver = await cloneActiveVersion(serviceId, key, active_ver);
@@ -268,7 +256,7 @@ router.all("(.*)", async (req, res) => {
     "msg": "Bad request",
     "detail": "Route not found"
   }
-  let notFoundResponse = new Response(JSON.stringify(json_notfound, null, 2).escapeSpecialChars(), {
+  let notFoundResponse = new Response(JSON.stringify(json_notfound, null, 2), {
     status: 404,
     statusText: "Not Found",
     headers: {
@@ -388,7 +376,7 @@ async function uploadSnippets(sid, key, ver) {
       "name": snippet,
       "dynamic": 0,
       "type": attrs.type,
-      "content": attrs.vcl.escapeSpecialChars()
+      "content": attrs.vcl
     };
 
     let body = JSON.stringify(json_snippet);
