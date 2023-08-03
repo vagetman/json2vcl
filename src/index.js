@@ -93,7 +93,12 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
         } else {
           strictRedirects.push(value.matchURL);
-          cloudletRedirectTable += `  "${value.matchURL}" : "${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
+          // build the table entry. the long-string is used when `%` indicates presence of URL-encoded characters
+          if (value.redirectURL.includes("%")) {
+            cloudletRedirectTable += `  "${value.matchURL}" : {"${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}"},\n`;
+          } else {
+            cloudletRedirectTable += `  "${value.matchURL}" : "${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
+          }
         }
       } else {
 
@@ -170,7 +175,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
         // add rule footer
         cloudletRedirectLogic += ')'.repeat(value.matches.length) + ` {
-    set var.cust_location = ${location}
+    set var.cust_location = ${location};
     set var.cust_priority = "${key}";
     set var.cust_status_code = "${status_code}";
     set var.cust_use_query_string = "${cust_use_query_string}";
@@ -268,23 +273,23 @@ router.all("(.*)", async (req, res) => {
 
 router.listen();
 
-// go over several cases for URL-encoded destinations and regex groups 
 function processLocation(redirectURL) {
-  let location = "";
-  if (redirectURL.includes("%")) {
-    // make it a long-string
-    location = `{"${redirectURL}"};`; 
-    // replace \1 -like regex group with Fastly style regex group
-    location = location.replace(/\\([1-9])\"};$/, '"} + re.group.$1;');
-    location = location.replace(/\\([1-9])/g, '"} + re.group.$1 + {"');
-  } else {
-    // make it a short-string
-    location = `"${redirectURL}";`;
-    // replace \1 -like regex group with Fastly style regex group
-    location = location.replace(/\\([1-9])\";/, '" + re.group.$1;');
-    location = location.replace(/\\([1-9])/g, '" + re.group.$1 + "');
+
+  let locationElements = redirectURL.replace(/\\([1-9])/g, ' re.group.$1 ').trimEnd().split(' ');
+
+  // join the elements of the array considering long and short strings quoting, when needed
+  let locationURL = "";
+  for (var i = 0; i < locationElements.length; i++) {
+    locationURL += i > 0 ? ` + ` : "";  // join elements
+    if (locationElements[i].includes("%")) {
+      locationURL += `{"${locationElements[i]}"}`;
+    } else if (locationElements[i].startsWith("re.group.")) {
+      locationURL += `${locationElements[i]}`;
+    } else {
+      locationURL += `"${locationElements[i]}"`;
+    }
   }
-  return location;
+  return locationURL;
 }
 
 function buildCondition(matchList, matches_idx, match_operand, negate) {
