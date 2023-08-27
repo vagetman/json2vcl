@@ -112,49 +112,44 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
             case 'regex': {
-              // 2+ match rules are treated as a logical AND
-              if (matches_idx > 0) {
-                cloudletRedirectLogic += ') && (';
-              }
-              if (matches_val.negate) {
-                cloudletRedirectLogic += `var.cust_full_path !~ "${matches_val.matchValue}"`;
-              } else {
-                cloudletRedirectLogic += `var.cust_full_path ~ "${matches_val.matchValue}"`;
-              }
+
+              let matchList = matches_val.matchValue.split(' ');
+
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'var.cust_full_path', matches_val.negate, true);
               break;
             }
             case 'query': {
               let [qs_name, qs_value] = matches_val.matchValue.split(/=(.*)/s);
-              let match_list = qs_value.split(' ');
+              let matchList = qs_value.split(' ');
 
               let matchOperand = `querystring.get(req.url, "${qs_name}")`;
-              buildCondition(match_list, matches_idx, matchOperand, matches_val.negate);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, matchOperand, matches_val.negate, false);
               break;
             }
             case 'hostname': {
               let matchList = matches_val.matchValue.split(' ');
 
-              buildCondition(matchList, matches_idx, 'req.http.host', matches_val.negate);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.http.host', matches_val.negate, false);
               break;
             }
             case 'path': {
               let matchList = matches_val.matchValue.split(' ');
 
-              buildCondition(matchList, matches_idx, 'req.url.path', matches_val.negate);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.url.path', matches_val.negate, false);
               break;
             }
             case 'cookie': {
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
               let matchList = c_value.split(' ');
 
-              buildCondition(matchList, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate, false);
               break;
             }
 
             case 'extension': {
               let matchList = matches_val.matchValue.split(' ');
 
-              buildCondition(matchList, matches_idx, 'req.url.ext', matches_val.negate);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.url.ext', matches_val.negate, false);
               break;
             }
             default:
@@ -292,30 +287,35 @@ function processLocation(redirectURL) {
   return locationURL;
 }
 
-function buildCondition(matchList, matches_idx, match_operand, negate) {
+function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) {
+  let newCondition = "";
   // go over all space separated values
-  for (let value_idx = 0; value_idx < matchList.length; value_idx++) {
+  for (let valueIdx = 0; valueIdx < matchList.length; valueIdx++) {
     // when wildcard characters present, the strict match has to be converted to regex
     let wildcard = /([?*])/;
     let eval_matchURL;
     let eval_operator;
-    if (wildcard.test(matchList[value_idx])) {
-      eval_matchURL = matchList[value_idx].replace(/([?*])/g, ".$1");
-      eval_operator = negate ? "!~" : "~";
+    if (isRegex) {
+      eval_matchURL = matchList[valueIdx];
+      eval_operator = isNegate ? "!~" : "~";
+    } else if (wildcard.test(matchList[valueIdx])) {
+      eval_matchURL = matchList[valueIdx].replace(/([?*])/g, ".$1");
+      eval_operator = isNegate ? "!~" : "~";
     } else {
-      eval_matchURL = matchList[value_idx];
-      eval_operator = negate ? "!=" : "==";
+      eval_matchURL = matchList[valueIdx];
+      eval_operator = isNegate ? "!=" : "==";
     }
 
-    if (value_idx == 0) {
+    if (valueIdx == 0) {
       // 2+ match rules are treated as a logical AND
-      cloudletRedirectLogic += matches_idx > 0 ? ') && (' : '';
+      newCondition += matchesIdx > 0 ? ') \n    && (' : '';
     } else {
       // items in a space separated list are treated as logical OR
-      cloudletRedirectLogic += ` || `;
+      newCondition += ` || `;
     }
-    cloudletRedirectLogic += `${match_operand} ${eval_operator} "${eval_matchURL}"`;
+    newCondition += `${matchOperand} ${eval_operator} "${eval_matchURL}"`;
   }
+  return newCondition;
 }
 
 async function getActiveService(sid, key) {
