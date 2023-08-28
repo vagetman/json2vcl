@@ -89,15 +89,22 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         } else {
           cust_use_query_string = "noQS";
         }
+        // process time frame for the rule if specified
+        let start = 0;
+        let end = 0;
+        if (isTimeFrameValid(value.start, value.end)) {
+          start = value.start;
+          end = value.end;
+        }
         if (strictRedirects.includes(value.matchURL)) {
           response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
         } else {
           strictRedirects.push(value.matchURL);
           // build the table entry. the long-string is used when `%` indicates presence of URL-encoded characters
           if (value.redirectURL.includes("%")) {
-            cloudletRedirectTable += `  "${value.matchURL}" : {"${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}"},\n`;
+            cloudletRedirectTable += `  "${value.matchURL}" : {"${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}"},\n`;
           } else {
-            cloudletRedirectTable += `  "${value.matchURL}" : "${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
+            cloudletRedirectTable += `  "${value.matchURL}" : "${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
           }
         }
       } else {
@@ -168,6 +175,10 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
         let location = processLocation(value.redirectURL);
 
+        if (isTimeFrameValid(value.start, value.end)) {
+          cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
+          cloudletRedirectLogic += `\n    && (time.is_after(std.integer2time(${value.end}), now))`;
+        }
         // add rule footer
         cloudletRedirectLogic += ')'.repeat(value.matches.length) + ` {
     set var.cust_location = ${location};
@@ -184,6 +195,8 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
   cloudletRedirectLogic += `
 
+  declare local var.dict_start INTEGER;
+  declare local var.dict_end INTEGER;
   declare local var.dict_result STRING;
   declare local var.dict_location STRING;
   declare local var.dict_priority STRING;
@@ -193,11 +206,17 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   // make a table lookup for a strict match result
   set var.dict_result = table.lookup(path_redirect, req.url.path);
 
-  if (var.dict_result ~ "^(\\d+)\\|(\\d+)\\|(useQS|noQS)\\|(.*)") {
-    set var.dict_priority = re.group.1;
-    set var.dict_status_code = re.group.2;
-    set var.dict_use_query_string = re.group.3;
-    set var.dict_location = re.group.4;
+  if (var.dict_result ~ "^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(useQS|noQS)\|(.*)") {
+    set var.dict_start = std.atoi(re.group.1);
+    set var.dict_end = std.atoi(re.group.2);
+    // if a time set for the match we should be within the specified bracket 
+    if (var.dict_start == 0 || time.is_after(now, std.integer2time(var.dict_start))
+      && (var.dict_end == 0 || time.is_after(std.integer2time(var.dict_end), now))) {
+      set var.dict_priority = re.group.3;
+      set var.dict_status_code = re.group.4;
+      set var.dict_use_query_string = re.group.5;
+      set var.dict_location = re.group.6;
+    }
   }
 
   // There can be only one of the following scenarios
@@ -285,6 +304,13 @@ function processLocation(redirectURL) {
     }
   }
   return locationURL;
+}
+
+function isTimeFrameValid(start, end) {
+  if (typeof start == "undefined" || typeof end == "undefined") { return false }
+  if (start == 0 && end == 0) { return false }
+
+  return true;
 }
 
 function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) {
