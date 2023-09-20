@@ -206,7 +206,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   // make a table lookup for a strict match result
   set var.dict_result = table.lookup(path_redirect, req.url.path);
 
-  if (var.dict_result ~ "^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(useQS|noQS)\|(.*)") {
+  if (var.dict_result ~ "^(\\d+)\\|(\\d+)\\|(\\d+)\\|(\\d+)\\|(useQS|noQS)\\|(.*)") {
     set var.dict_start = std.atoi(re.group.1);
     set var.dict_end = std.atoi(re.group.2);
     // if a time set for the match we should be within the specified bracket 
