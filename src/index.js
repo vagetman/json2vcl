@@ -210,7 +210,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     set var.dict_start = std.atoi(re.group.1);
     set var.dict_end = std.atoi(re.group.2);
     // if a time set for the match we should be within the specified bracket 
-    if (var.dict_start == 0 || time.is_after(now, std.integer2time(var.dict_start))
+    if ((var.dict_start == 0 || time.is_after(now, std.integer2time(var.dict_start)))
       && (var.dict_end == 0 || time.is_after(std.integer2time(var.dict_end), now))) {
       set var.dict_priority = re.group.3;
       set var.dict_status_code = re.group.4;
