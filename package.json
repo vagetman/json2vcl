@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "@fastly/expressly": "^1.4.0",
-    "@fastly/js-compute": "^3.1.1"
+    "@fastly/expressly": "^2.3.0",
+    "@fastly/js-compute": "^3.2.0"
   },
   "devDependencies": {
     "eslint": "^8.45.0"

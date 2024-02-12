@@ -29,10 +29,16 @@ It's required to specify a `Fastly-Key` header with [Fastky API token](https://d
 For example, the following `curl` command could be used:
 
 ```shell
-curl https://example.com/cloudlet/er/service/xRNX3LlEUCVrSqtRtQ6r58 -X POST -d@cloudlet.json -H Fastly-Key:IxWZk_U-HxxuMW8X8v_x8mC5QrnHo4nx
+curl https://example.com/cloudlet/er/service/xRNX3LlEUCVrSqtRtQ6r58 -X POST -data-binary @cloudlet.json -H Fastly-Key:IxWZk_U-HxxuMW8X8v_x8mC5QrnHo4nx
 ```
 `example.com` should be the domain that gets provisioned with your compute service. When testing locally - 
 ```shell
-curl http://localhost:7676/cloudlet/er/service/xRNX3LlEUCVrSqtRtQ6r58 -X POST -d@cloudlet.json -H Fastly-Key:IxWZk_U-HxxuMW8X8v_x8mC5QrnHo4nx
+curl http://localhost:7676/cloudlet/er/service/xRNX3LlEUCVrSqtRtQ6r58 -X POST -data-binary @cloudlet.json -H Fastly-Key:IxWZk_U-HxxuMW8X8v_x8mC5QrnHo4nx
 ```
-The `sid` and `Fastly-Key` are not real and provided only for the usage demonstration only. Please use your own SIDs and keys.
+## For CSV data format
+Cloudlet UI users are working with CSV data format. When the format is used `?format=` query parameter must be used with `csv` value, eg
+```shell
+curl http://localhost:7676/cloudlet/er/service/xRNX3LlEUCVrSqtRtQ6r58?format=csv -X POST -data-binary @cloudlet.csv -H Fastly-Key:IxWZk_U-HxxuMW8X8v_x8mC5QrnHo4nx
+```
+
+(The `sid` and `Fastly-Key` are not real and provided only for the usage demonstration only. Please use your own SIDs and keys.)

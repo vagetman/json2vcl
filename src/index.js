@@ -63,10 +63,21 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     res.send(resp);
   }
 
-  // Parse the JSON response from the backend.
-  const data = await req.json();
+  let data = JSON.stringify();
 
-  // console.log("data received", data);
+  if (req.query.has("format")) {
+    const type = req.query.get("format");
+    if (type == "csv") {
+      console.log("Converting from CSV");
+      let csv = await req.text();
+      data = do_csv(csv);
+    } else {
+      data = await req.json();
+    }
+  } else {
+    // Parse the JSON
+    data = await req.json();
+  }
 
   // define placeholders go populate later
   let strictRedirects = [];
@@ -79,9 +90,10 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     // console.log(key + " -> " + JSON.stringify(data.matchRules[key], null, 2));
     let status_code = typeof value.statusCode == 'undefined' ? '301' : value.statusCode;
     if (value.type == "erMatchRule") {
-      // console.log("erMatchRule rule found");
+      // skip disabled values
+      if (typeof value.disabled !== "undefined" && value.disabled === "1") continue
 
-      if (value.matchURL !== null) {
+      if (value.matchURL !== null && value.matchURL.length !== 0) {
         // A strict match case, use edge dictionary table
         let cust_use_query_string
         if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
@@ -99,12 +111,19 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         if (strictRedirects.includes(value.matchURL)) {
           response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
         } else {
+          let location = value.redirectURL;
+          // when useRelativeUrl is set to `relative_url` value
+          // make sure the redirect URL doesn't have schema and domain parts
+          if (typeof value.useRelativeUrl !== "undefined" && value.useRelativeUrl == "relative_url") {
+            const re = new RegExp(/^http[s]?:\/\/.*?\//);
+            location = location.replace(re, '/');
+          }
           strictRedirects.push(value.matchURL);
           // build the table entry. the long-string is used when `%` indicates presence of URL-encoded characters
           if (value.redirectURL.includes("%")) {
-            cloudletRedirectTable += `  "${value.matchURL}" : {"${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}"},\n`;
+            cloudletRedirectTable += `  "${value.matchURL}" : {"${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}"},\n`;
           } else {
-            cloudletRedirectTable += `  "${value.matchURL}" : "${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${value.redirectURL}",\n`;
+            cloudletRedirectTable += `  "${value.matchURL}" : "${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}",\n`;
           }
         }
       } else {
@@ -152,7 +171,6 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
               cloudletRedirectLogic += buildCondition(matchList, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate, false);
               break;
             }
-
             case 'extension': {
               let matchList = matches_val.matchValue.split(' ');
 
@@ -173,7 +191,16 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           cust_use_query_string = "noQS";
         }
 
+        // redirect location may have regex group notation (eg. `\1`)
+        // that needs to be converted to VCL format (eg. `re.group.1`)
         let location = processLocation(value.redirectURL);
+
+        // when useRelativeUrl is set to `relative_url` value
+        // make sure the redirect URL doesn't have schema and domain parts
+        if (typeof value.useRelativeUrl !== "undefined" && value.useRelativeUrl == "relative_url") {
+          const re = new RegExp(/^http[s]?:\/\/.*?\//);
+          location = location.replace(re, '/');
+        }
 
         if (isTimeFrameValid(value.start, value.end)) {
           cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
@@ -287,6 +314,160 @@ router.all("(.*)", async (req, res) => {
 
 router.listen();
 
+function do_csv(csv) {
+
+  // Convert the data to String and
+  // split it in an array
+  const array = csv.split(/\r?\n/);
+
+  let result = { "matchRules": [] };
+
+  // Skip comments. Lines starting with `#
+  // When a header columns found - store it in headers array
+
+  let headers;
+  let startIdx = 0;
+  for (let i = 0; i < array.length - 1; i++) {
+    if (array[i].startsWith('#')) {
+      continue;
+    }
+    headers = array[i].replaceAll("result.", "").split(",");
+    // update startIdx and exit the loop
+    startIdx = i + 1;
+    break;
+  }
+
+  // Now we need to traverse remaining n-StartIdx rows.
+  for (let i = startIdx; i < array.length - 1; i++) {
+    // Create a template object to later add
+    // values of the current row to it
+    // TODO: make the type configurable by the `path`
+    let obj = { "type": "erMatchRule" };
+
+    // Declare string str as current array
+    // value to change the delimiter and
+    // store the generated string in a new
+    // string s
+    let str = array[i];
+    let s = '';
+
+    // the comma separated values of a cell in quotes " " so we
+    // use flag to keep track of quotes and
+    // split the string accordingly.
+    // If we encounter opening quote (")
+    // then we keep commas as it is otherwise
+    // treat it as the end of the cell and push to the array
+    let flag = 0;
+    let properties = [];
+
+    for (let ch of str) {
+      if (ch === '"' && flag === 0) {
+        flag = 1;
+        continue;
+      }
+      else if (ch === '"' && flag == 1) flag = 0
+      if (ch === ',' && flag === 0) {
+        properties.push(s);
+        s = '';
+        continue;
+      }
+
+      if (ch !== '"') s += ch
+    }
+    // store the last element
+    properties.push(s);
+
+    // For each header, if the value contains
+    // multiple comma separated data, then we
+    // store it in the form of array otherwise
+    // directly the value is stored
+
+    for (let j in headers) {
+      if (properties[j].includes(",")) {
+        obj[headers[j]] = properties[j]
+          .split(",").map(item => item.trim())
+      }
+      else obj[headers[j]] = properties[j]
+    }
+
+    // Add the generated object to our
+    // result array
+    result.matchRules.push(obj);
+  }
+
+  return treatMatches(result);
+}
+
+function treatMatches(json) {
+  // Convert match format from CSV to JSON
+  for (const [key, value] of Object.entries(json.matchRules)) {
+    if (value.matchURL === null || value.matchURL.length === 0) {
+      value.matches = [];
+      if (value.path !== null && value.path.length !== 0) {
+        let match = {};
+        if (value.path.startsWith('!')) {
+          match.negate = true;
+          value.path = value.path.substring(1);
+        } else {
+          match.negate = false;
+        }
+
+        if (value.path.startsWith(':')) {
+          match.caseSensitive = true;
+          value.path = value.path.substring(1);
+        } else {
+          match.caseSensitive = false;
+        }
+        if (match.length !== 0) {
+          match.matchType = "path";
+          match.matchOperator = "equals";
+          match.matchValue = value.path;
+
+          value.matches.push(match);
+        }
+
+      }
+      if (value.query !== null && value.query.length !== 0) {
+        let match = {};
+
+        if (value.query.startsWith('!')) {
+          match.negate = true;
+          value.query = value.query.substring(1);
+        } else {
+          match.negate = false;
+        }
+
+        if (value.query.startsWith(':')) {
+          match.caseSensitive = true;
+          value.query = value.query.substring(1);
+        } else {
+          match.caseSensitive = false;
+        }
+
+        if (match.length !== 0) {
+          match.matchType = "path";
+          match.matchOperator = "equals";
+          match.matchValue = value.query;
+
+          value.matches.push(match);
+        }
+      }
+
+      if (value.regex !== null && value.regex.length !== 0) {
+        let match = {};
+        match.matchType = "path";
+        match.matchOperator = "equals";
+        match.negate = false;
+        match.caseSensitive = false;
+        match.matchValue = value.regex;
+
+        value.matches.push(match);
+      }
+    }
+  }
+  return json;
+}
+
 function processLocation(redirectURL) {
 
   let locationElements = redirectURL.replace(/\\([1-9])/g, ' re.group.$1 ').trimEnd().split(' ');
@@ -307,8 +488,8 @@ function processLocation(redirectURL) {
 }
 
 function isTimeFrameValid(start, end) {
-  if (typeof start == "undefined" || typeof end == "undefined") { return false }
-  if (start == 0 && end == 0) { return false }
+  if (typeof start == "undefined" || typeof end == "undefined") return false
+  if (start == 0 && end == 0) return false
 
   return true;
 }
