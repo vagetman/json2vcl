@@ -24,7 +24,7 @@ The application expects a JSON uploaded with `POST` method at the following endp
 (at the time of writing only `er` is implemented).
 * `<sid>` is Fastly Service ID.
 
-It's required to specify a `Fastly-Key` header with [Fastky API token](https://developer.fastly.com/reference/api/#authentication) that has access to the `sid`
+It's required to specify a `Fastly-Key` header with [Fastly API token](https://developer.fastly.com/reference/api/#authentication) that has access to the `sid`
 
 For example, the following `curl` command could be used:
 
