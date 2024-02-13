@@ -63,21 +63,15 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     res.send(resp);
   }
 
-  let data = JSON.stringify();
+  let data;
+  const type = req.query.has("format") ? req.query.get("format") : null;
 
-  if (req.query.has("format")) {
-    const type = req.query.get("format");
-    if (type == "csv") {
-      console.log("Converting from CSV");
-      let csv = await req.text();
-      data = do_csv(csv);
-    } else {
-      data = await req.json();
-    }
-  } else {
-    // Parse the JSON
+  if (type == "csv") {
+    let csv = await req.text();
+    data = do_csv(csv);
+  } else if (type == "json") {
     data = await req.json();
-  }
+  } else { res.send("Wrong `format` parameter") }
 
   // define placeholders go populate later
   let strictRedirects = [];
@@ -287,6 +281,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
   let active_ver = await getActiveService(serviceId, key);
   let cloned_ver = await cloneActiveVersion(serviceId, key, active_ver);
+
   await deleteSnippets(serviceId, key, cloned_ver);
   await uploadSnippets(serviceId, key, cloned_ver);
   await activeVersion(serviceId, key, cloned_ver);
