@@ -73,11 +73,14 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     data = await req.json();
   } else { res.send("Wrong `format` parameter") }
 
+  // sanitize timeframe
+  treatTimeFrames(data);
+
   // define placeholders go populate later
   let strictRedirects = [];
   let response = "";
 
-  // this going to enumerate custom conditions 
+  // this going to enumerate custom conditions
   let firstCondition = "0";
 
   for (const [key, value] of Object.entries(data.matchRules)) {
@@ -87,7 +90,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
       // skip disabled values
       if (typeof value.disabled !== "undefined" && value.disabled === "1") continue
 
-      if (value.matchURL !== null && value.matchURL.length !== 0) {
+      if (typeof value.matchURL !== "undefined" && value.matchURL !== null && value.matchURL.length !== 0) {
         // A strict match case, use edge dictionary table
         let cust_use_query_string
         if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
@@ -98,7 +101,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         // process time frame for the rule if specified
         let start = 0;
         let end = 0;
-        if (isTimeFrameValid(value.start, value.end)) {
+        if (isTimeFrameDefined(value.start, value.end)) {
           start = value.start;
           end = value.end;
         }
@@ -196,9 +199,11 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           location = location.replace(re, '/');
         }
 
-        if (isTimeFrameValid(value.start, value.end)) {
-          cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
-          cloudletRedirectLogic += `\n    && (time.is_after(std.integer2time(${value.end}), now))`;
+        if (isTimeFrameDefined(value.start, value.end)) {
+          if (value.start > 0)
+            cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
+          if (value.end > 0)
+            cloudletRedirectLogic += `\n    && (time.is_after(std.integer2time(${value.end}), now))`;
         }
         // add rule footer
         cloudletRedirectLogic += ')'.repeat(value.matches.length) + ` {
@@ -230,7 +235,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   if (var.dict_result ~ "^(\\d+)\\|(\\d+)\\|(\\d+)\\|(\\d+)\\|(useQS|noQS)\\|(.*)") {
     set var.dict_start = std.atoi(re.group.1);
     set var.dict_end = std.atoi(re.group.2);
-    // if a time set for the match we should be within the specified bracket 
+    // if a time set for the match we should be within the specified bracket
     if ((var.dict_start == 0 || time.is_after(now, std.integer2time(var.dict_start)))
       && (var.dict_end == 0 || time.is_after(std.integer2time(var.dict_end), now))) {
       set var.dict_priority = re.group.3;
@@ -317,16 +322,23 @@ function do_csv(csv) {
 
   let result = { "matchRules": [] };
 
-  // Skip comments. Lines starting with `#
-  // When a header columns found - store it in headers array
-
+  // Store headers in headers array
   let headers;
   let startIdx = 0;
   for (let i = 0; i < array.length - 1; i++) {
+    // Skip comments. Lines starting with `#
     if (array[i].startsWith('#')) {
       continue;
     }
-    headers = array[i].replaceAll("result.", "").split(",");
+
+    // Treat the first non-comment line as headers
+    // Rename some headers to match JSON naming
+    let headers_str = array[i].replaceAll("result.", "");
+    headers_str = headers_str.replace("utcEndTime", "end");
+    headers_str = headers_str.replace("utcStartTime", "start");
+    // store headers as array
+    headers = headers_str.split(",");
+
     // update startIdx and exit the loop
     startIdx = i + 1;
     break;
@@ -396,7 +408,8 @@ function do_csv(csv) {
 function treatMatches(json) {
   // Convert match format from CSV to JSON
   for (const [key, value] of Object.entries(json.matchRules)) {
-    if (value.matchURL === null || value.matchURL.length === 0) {
+    console.log(key + " -> " + JSON.stringify(json.matchRules[key], null, 2));
+    if (typeof value.matchURL === "undefined" || value.matchURL === null || value.matchURL.length === 0) {
       value.matches = [];
       if (value.path !== null && value.path.length !== 0) {
         let match = {};
@@ -440,7 +453,7 @@ function treatMatches(json) {
         }
 
         if (match.length !== 0) {
-          match.matchType = "path";
+          match.matchType = "query";
           match.matchOperator = "equals";
           match.matchValue = value.query;
 
@@ -450,7 +463,7 @@ function treatMatches(json) {
 
       if (value.regex !== null && value.regex.length !== 0) {
         let match = {};
-        match.matchType = "path";
+        match.matchType = "regex";
         match.matchOperator = "equals";
         match.negate = false;
         match.caseSensitive = false;
@@ -482,8 +495,26 @@ function processLocation(redirectURL) {
   return locationURL;
 }
 
-function isTimeFrameValid(start, end) {
-  if (typeof start == "undefined" || typeof end == "undefined") return false
+// Make sure both `start` and `end` values are defined and valid
+function treatTimeFrames(data) {
+  for (const [key, value] of Object.entries(data.matchRules)) {
+    // skip records without time frame
+    if (typeof value.start === "undefined" && typeof value.end === "undefined")
+      continue
+
+    // add 2nd end of the timeframe as `0` is omitted
+    if (typeof value.start !== "undefined" && typeof value.end === "undefined") {
+      value.end = 0;
+    } else if (typeof value.end !== "undefined" && typeof value.start === "undefined") {
+      value.start = 0;
+    }
+  }
+}
+
+function isTimeFrameDefined(start, end) {
+  if (typeof start === "undefined" || typeof end === "undefined")
+    return false;
+
   if (start == 0 && end == 0) return false
 
   return true;
