@@ -411,7 +411,7 @@ function treatMatches(json) {
     console.log(key + " -> " + JSON.stringify(json.matchRules[key], null, 2));
     if (typeof value.matchURL === "undefined" || value.matchURL === null || value.matchURL.length === 0) {
       value.matches = [];
-      if (value.path !== null && value.path.length !== 0) {
+      if (typeof value.path !== "undefined" && value.path !== null && value.path.length !== 0) {
         let match = {};
         if (value.path.startsWith('!')) {
           match.negate = true;
@@ -435,7 +435,7 @@ function treatMatches(json) {
         }
 
       }
-      if (value.query !== null && value.query.length !== 0) {
+      if (typeof value.query !== "undefined" && value.query !== null && value.query.length !== 0) {
         let match = {};
 
         if (value.query.startsWith('!')) {
@@ -461,7 +461,7 @@ function treatMatches(json) {
         }
       }
 
-      if (value.regex !== null && value.regex.length !== 0) {
+      if (typeof value.regex !== "undefined" && value.regex !== null && value.regex.length !== 0) {
         let match = {};
         match.matchType = "regex";
         match.matchOperator = "equals";
