@@ -135,7 +135,6 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
             case 'regex': {
-
               let matchList = matches_val.matchValue.split(' ');
 
               cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'var.cust_full_path', matches_val.negate, true);
@@ -529,7 +528,8 @@ function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) 
     let eval_matchURL;
     let eval_operator;
     if (isRegex) {
-      eval_matchURL = matchList[valueIdx];
+      // omitt trailing `.*` in regex expression, implied in Fastly VCL
+      eval_matchURL = matchList[valueIdx].replace(/\.\*$/, "");
       eval_operator = isNegate ? "!~" : "~";
     } else if (wildcard.test(matchList[valueIdx])) {
       eval_matchURL = matchList[valueIdx].replace(/([?*])/g, ".$1");
