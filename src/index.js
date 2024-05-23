@@ -520,7 +520,9 @@ function isTimeFrameDefined(start, end) {
 }
 
 function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) {
-  let newCondition = "";
+  // 2+ match rules are treated as a logical AND
+  let newCondition = matchesIdx > 0 ? ') \n    && (' : '';
+
   // go over all space separated values
   for (let valueIdx = 0; valueIdx < matchList.length; valueIdx++) {
     // when wildcard characters present, the strict match has to be converted to regex
@@ -531,6 +533,7 @@ function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) 
       // omitt trailing `.*` in regex expression, implied in Fastly VCL
       eval_matchURL = matchList[valueIdx].replace(/\.\*$/, "");
       eval_operator = isNegate ? "!~" : "~";
+      // convert wildcards and match as regex
     } else if (wildcard.test(matchList[valueIdx])) {
       eval_matchURL = matchList[valueIdx].replace(/([?*])/g, ".$1");
       eval_operator = isNegate ? "!~" : "~";
@@ -539,11 +542,8 @@ function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) 
       eval_operator = isNegate ? "!=" : "==";
     }
 
-    if (valueIdx == 0) {
-      // 2+ match rules are treated as a logical AND
-      newCondition += matchesIdx > 0 ? ') \n    && (' : '';
-    } else {
-      // items in a space separated list are treated as logical OR
+    if (valueIdx > 0) {
+      // multiple elements in a space separated list mean logical OR
       newCondition += ` || `;
     }
     newCondition += `${matchOperand} ${eval_operator} "${eval_matchURL}"`;
