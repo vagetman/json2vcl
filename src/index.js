@@ -4,13 +4,9 @@
 // `asMatchRule` - `Audience Segmentation`, not supported
 
 import { Router } from "@fastly/expressly";
+import { updateService, JsonContentType } from "./fastly_api";
 
-const API_BACKEND = "fastly_api";
 const router = new Router();
-
-let baseURL = "https://api.fastly.com/service/";
-
-const JsonContentType = "application/json";
 
 // define a template, which we will populate with code later.
 let vcl_snippets = {
@@ -55,7 +51,7 @@ let strictRedirects = [];
 
 // If the URL begins with /cloudlet/er/service/
 router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
-  let serviceId = req.params.serviceId;
+  let sid = req.params.serviceId;
   let key = req.headers.get("Fastly-Key");
   if (key == null) {
     let resp = new Response("`Fastly-Key` header must be speficied\n");
@@ -251,12 +247,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   vcl_snippets.cloudlet_redirect_logic.vcl = cloudletRedirectLogic;
   vcl_snippets.cloudlet_redirect_handler.vcl = cloudletRedirectHandler;
 
-  let active_ver = await getActiveService(serviceId, key);
-  let cloned_ver = await cloneActiveVersion(serviceId, key, active_ver);
-
-  await deleteSnippets(serviceId, key, cloned_ver);
-  await uploadSnippets(serviceId, key, cloned_ver);
-  await activeVersion(serviceId, key, cloned_ver);
+  response += await updateService(sid, key, vcl_snippets);
 
   const resp = new Response(response);
 
@@ -554,104 +545,4 @@ function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) 
     newCondition += `${matchOperand} ${eval_operator} "${eval_matchURL}"`;
   }
   return newCondition;
-}
-
-async function getActiveService(sid, key) {
-  let serviceURL = baseURL + sid;
-  let newReq = new Request(serviceURL);
-
-  let beresp = await fetch(newReq, {
-    backend: API_BACKEND,
-    headers: {
-      "Fastly-Key": key,
-    },
-  });
-
-  let resp = await beresp.json();
-
-  // console.log(JSON.stringify(await beresp.json(), null, 2));
-  for (const version of Object.values(resp.versions)) {
-    if (version.active == true) {
-      console.log("Active version:", version.number);
-      return version.number;
-    }
-  }
-  // console.log(await beresp.json());
-}
-
-async function cloneActiveVersion(sid, key, ver) {
-  let serviceURL = `${baseURL}${sid}/version/${ver}/clone`;
-  let newReq = new Request(serviceURL);
-  let beresp = await fetch(newReq, {
-    backend: API_BACKEND,
-    method: "PUT",
-    headers: {
-      "Fastly-Key": key,
-    },
-  });
-  let resp = await beresp.json();
-
-  console.log("Active version cloned to version", resp.number);
-  return resp.number;
-}
-
-async function deleteSnippets(sid, key, ver) {
-  // /service/service_id/version/version_id/snippet/snippet_name
-  for (const snippet of Object.keys(vcl_snippets)) {
-    let serviceURL = `${baseURL}${sid}/version/${ver}/snippet/${snippet}`;
-    let newReq = new Request(serviceURL);
-    let beresp = await fetch(newReq, {
-      backend: API_BACKEND,
-      method: "DELETE",
-      headers: {
-        "Fastly-Key": key,
-      },
-    });
-    let resp = await beresp.json();
-    console.log(`Deleting snippet '${snippet}' - ${beresp.status} ${beresp.statusText}`);
-  }
-}
-
-async function uploadSnippets(sid, key, ver) {
-  let serviceURL = `${baseURL}${sid}/version/${ver}/snippet`;
-  for (const [snippet, attrs] of Object.entries(vcl_snippets)) {
-    let json_snippet = {
-      name: snippet,
-      dynamic: 0,
-      type: attrs.type,
-      content: attrs.vcl,
-    };
-
-    let body = JSON.stringify(json_snippet);
-    let newReq = new Request(serviceURL);
-    let beresp = await fetch(newReq, {
-      backend: API_BACKEND,
-      method: "POST",
-      body,
-      headers: {
-        "Fastly-Key": key,
-        "Content-Type": JsonContentType,
-        Accept: JsonContentType,
-      },
-    });
-    // eslint-disable-next-line no-unused-vars
-    let resp = await beresp.json();
-    console.log(`Uploading  snippet '${snippet}' - ${beresp.status} ${beresp.statusText}`);
-    // console.log("Uploading snippet `encoded_redirect_table` - " + JSON.stringify(resp, null, 2));
-  }
-}
-
-async function activeVersion(sid, key, ver) {
-  let serviceURL = `${baseURL}${sid}/version/${ver}/activate`;
-  let newReq = new Request(serviceURL);
-  let beresp = await fetch(newReq, {
-    backend: API_BACKEND,
-    method: "PUT",
-    headers: {
-      "Fastly-Key": key,
-    },
-  });
-  let resp = await beresp.json();
-
-  console.log("Activating version", ver, "- ", JSON.stringify(resp, null, 2));
 }
