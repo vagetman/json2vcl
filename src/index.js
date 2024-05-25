@@ -64,12 +64,12 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   }
 
   let data;
-  const type = req.query.has("format") ? req.query.get("format") : null;
+  const format = req.query.has("format") ? req.query.get("format") : null;
 
-  if (type == "csv") {
+  if (format == "csv") {
     let csv = await req.text();
     data = do_csv(csv);
-  } else if (type == "json") {
+  } else if (format == "json") {
     data = await req.json();
   } else {
     res.send("Wrong `format` parameter");
