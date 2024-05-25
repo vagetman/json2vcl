@@ -3,9 +3,7 @@
 // `frMatchRule` - `Forward Rewrite,` not supported
 // `asMatchRule` - `Audience Segmentation`, not supported
 
-import {
-  Router
-} from "@fastly/expressly";
+import { Router } from "@fastly/expressly";
 
 const API_BACKEND = "fastly_api";
 const router = new Router();
@@ -16,18 +14,18 @@ const JsonContentType = "application/json";
 
 // define a template, which we will populate with code later.
 let vcl_snippets = {
-  "cloudlet_redirect_table": {
-    "type": "init",
-    "vcl": ""
+  cloudlet_redirect_table: {
+    type: "init",
+    vcl: "",
   },
-  "cloudlet_redirect_logic": {
-    "type": "recv",
-    "vcl": ""
+  cloudlet_redirect_logic: {
+    type: "recv",
+    vcl: "",
   },
-  "cloudlet_redirect_handler": {
-    "type": "error",
-    "vcl": ""
-  }
+  cloudlet_redirect_handler: {
+    type: "error",
+    vcl: "",
+  },
 };
 
 let cloudletRedirectTable = "\n// cloudlet_redirect_table begins\n\ntable path_redirect {\n";
@@ -52,6 +50,8 @@ let cloudletRedirectHandler = `  # Cloudlet Redirect handler
     return(deliver);
   }
 `;
+// a placeholder for a list strict redirects is used to make sure all the keys are unique
+let strictRedirects = [];
 
 // If the URL begins with /cloudlet/er/service/
 router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
@@ -71,13 +71,14 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
     data = do_csv(csv);
   } else if (type == "json") {
     data = await req.json();
-  } else { res.send("Wrong `format` parameter") }
+  } else {
+    res.send("Wrong `format` parameter");
+  }
 
   // sanitize timeframe
   treatTimeFrames(data);
 
   // define placeholders go populate later
-  let strictRedirects = [];
   let response = "";
 
   // this going to enumerate custom conditions
@@ -85,107 +86,74 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
   for (const [key, value] of Object.entries(data.matchRules)) {
     // console.log(key + " -> " + JSON.stringify(data.matchRules[key], null, 2));
-    let status_code = typeof value.statusCode == 'undefined' ? '301' : value.statusCode;
+    let status_code = typeof value.statusCode == "undefined" ? "301" : value.statusCode;
     if (value.type == "erMatchRule") {
       // skip disabled values
-      if (typeof value.disabled !== "undefined" && value.disabled === "1") continue
+      if (typeof value.disabled !== "undefined" && value.disabled === "1") continue;
 
       if (typeof value.matchURL !== "undefined" && value.matchURL !== null && value.matchURL.length !== 0) {
         // A strict match case, use edge dictionary table
-        let cust_use_query_string
-        if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
-          cust_use_query_string = "useQS";
-        } else {
-          cust_use_query_string = "noQS";
-        }
-        // process time frame for the rule if specified
-        let start = 0;
-        let end = 0;
-        if (isTimeFrameDefined(value.start, value.end)) {
-          start = value.start;
-          end = value.end;
-        }
-        if (strictRedirects.includes(value.matchURL)) {
-          response += `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
-        } else {
-          let location = value.redirectURL;
-          // when useRelativeUrl is set to `relative_url` value
-          // make sure the redirect URL doesn't have schema and domain parts
-          if (typeof value.useRelativeUrl !== "undefined" && value.useRelativeUrl == "relative_url") {
-            const re = new RegExp(/^http[s]?:\/\/.*?\//);
-            location = location.replace(re, '/');
-          }
-          strictRedirects.push(value.matchURL);
-          // build the table entry. the long-string is used when `%` indicates presence of URL-encoded characters
-          if (value.redirectURL.includes("%")) {
-            cloudletRedirectTable += `  "${value.matchURL}" : {"${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}"},\n`;
-          } else {
-            cloudletRedirectTable += `  "${value.matchURL}" : "${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}",\n`;
-          }
-        }
+        let result = buildTableEntry(value, status_code, key);
+        // get a tuple / array and deconstruct the response
+        cloudletRedirectTable += result[0];
+        response += result[1];
       } else {
-
         // add conditition header
         // the first custom condition should start with `if` while rest should be `elseif`
-        cloudletRedirectLogic += firstCondition == 0 ? '\n  if ' : ' elseif ';
+        cloudletRedirectLogic += firstCondition == 0 ? "\n  if " : " elseif ";
         firstCondition++;
 
-        cloudletRedirectLogic += '('.repeat(value.matches.length);
+        cloudletRedirectLogic += "(".repeat(value.matches.length);
         for (const [matches_idx, matches_val] of Object.entries(value.matches)) {
           console.log(`'matchType' = ${matches_val.matchType}`);
           switch (matches_val.matchType) {
-            case 'regex': {
-              let matchList = matches_val.matchValue.split(' ');
+            case "regex": {
+              let matchList = matches_val.matchValue.split(" ");
 
-              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'var.cust_full_path', matches_val.negate, true);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, "var.cust_full_path", matches_val.negate, true);
               break;
             }
-            case 'query': {
+            case "query": {
               let [qs_name, qs_value] = matches_val.matchValue.split(/=(.*)/s);
-              let matchList = qs_value.split(' ');
+              let matchList = qs_value.split(" ");
 
               let matchOperand = `querystring.get(req.url, "${qs_name}")`;
               cloudletRedirectLogic += buildCondition(matchList, matches_idx, matchOperand, matches_val.negate, false);
               break;
             }
-            case 'hostname': {
-              let matchList = matches_val.matchValue.split(' ');
+            case "hostname": {
+              let matchList = matches_val.matchValue.split(" ");
 
-              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.http.host', matches_val.negate, false);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, "req.http.host", matches_val.negate, false);
               break;
             }
-            case 'path': {
-              let matchList = matches_val.matchValue.split(' ');
+            case "path": {
+              let matchList = matches_val.matchValue.split(" ");
 
-              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.url.path', matches_val.negate, false);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, "req.url.path", matches_val.negate, false);
               break;
             }
-            case 'cookie': {
+            case "cookie": {
               let [c_name, c_value] = matches_val.matchValue.split(/=(.*)/s);
-              let matchList = c_value.split(' ');
+              let matchList = c_value.split(" ");
 
               cloudletRedirectLogic += buildCondition(matchList, matches_idx, `req.http.cookie:${c_name}`, matches_val.negate, false);
               break;
             }
-            case 'extension': {
-              let matchList = matches_val.matchValue.split(' ');
+            case "extension": {
+              let matchList = matches_val.matchValue.split(" ");
 
-              cloudletRedirectLogic += buildCondition(matchList, matches_idx, 'req.url.ext', matches_val.negate, false);
+              cloudletRedirectLogic += buildCondition(matchList, matches_idx, "req.url.ext", matches_val.negate, false);
               break;
             }
             default:
-              console.log('Unknown `matchType: `', matches_idx.matchType, 'skipped');
+              console.log("Unknown `matchType: `", matches_idx.matchType, "skipped");
           }
         }
 
         // prepare rule footer
         // add an indicator to `useIncomingQueryString` value, if present
-        let cust_use_query_string;
-        if (typeof value.useIncomingQueryString !== "undefined" && value.useIncomingQueryString == true) {
-          cust_use_query_string = "useQS";
-        } else {
-          cust_use_query_string = "noQS";
-        }
+        let cust_use_query_string = qsOrNot(value.useIncomingQueryString);
 
         // redirect location may have regex group notation (eg. `\1`)
         // that needs to be converted to VCL format (eg. `re.group.1`)
@@ -195,17 +163,17 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
         // make sure the redirect URL doesn't have schema and domain parts
         if (typeof value.useRelativeUrl !== "undefined" && value.useRelativeUrl == "relative_url") {
           const re = new RegExp(/^http[s]?:\/\/.*?\//);
-          location = location.replace(re, '/');
+          location = location.replace(re, "/");
         }
 
         if (isTimeFrameDefined(value.start, value.end)) {
-          if (value.start > 0)
-            cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
-          if (value.end > 0)
-            cloudletRedirectLogic += `\n    && (time.is_after(std.integer2time(${value.end}), now))`;
+          if (value.start > 0) cloudletRedirectLogic += `\n    && (time.is_after(now, std.integer2time(${value.start})))`;
+          if (value.end > 0) cloudletRedirectLogic += `\n    && (time.is_after(std.integer2time(${value.end}), now))`;
         }
         // add rule footer
-        cloudletRedirectLogic += ')'.repeat(value.matches.length) + ` {
+        cloudletRedirectLogic +=
+          ")".repeat(value.matches.length) +
+          ` {
     set var.cust_location = ${location};
     set var.cust_priority = "${key}";
     set var.cust_status_code = "${status_code}";
@@ -216,7 +184,7 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
   }
 
   // complete the redirect table
-  cloudletRedirectTable += '}\n';
+  cloudletRedirectTable += "}\n";
 
   cloudletRedirectLogic += `
 
@@ -298,35 +266,74 @@ router.post("/cloudlet/er/service/:serviceId([^/]+)", async (req, res) => {
 
 router.all("(.*)", async (req, res) => {
   let json_notfound = {
-    "msg": "Bad request",
-    "detail": "Route not found"
-  }
+    msg: "Bad request",
+    detail: "Route not found",
+  };
   let notFoundResponse = new Response(JSON.stringify(json_notfound, null, 2), {
     status: 404,
     statusText: "Not Found",
     headers: {
-      "Content-Type": JsonContentType
-    }
+      "Content-Type": JsonContentType,
+    },
   });
   res.send(notFoundResponse);
 });
 
 router.listen();
 
-function do_csv(csv) {
+function qsOrNot(useIncomingQS) {
+  if (typeof useIncomingQS !== "undefined" && useIncomingQS == true) {
+    return "useQS";
+  }
+  return "noQS";
+}
 
+function buildTableEntry(value, status_code, key) {
+  let entry = "";
+  let response = "";
+
+  let cust_use_query_string = qsOrNot(value.useIncomingQueryString);
+
+  // process time frame for the rule if specified
+  let start = 0;
+  let end = 0;
+  if (isTimeFrameDefined(value.start, value.end)) {
+    start = value.start;
+    end = value.end;
+  }
+  if (strictRedirects.includes(value.matchURL)) {
+    response = `Entry ${key} - ${value.matchURL} is a duplicate, ignored.\n`;
+  } else {
+    let location = value.redirectURL;
+    // when useRelativeUrl is set to `relative_url` value
+    // make sure the redirect URL doesn't have schema and domain parts
+    if (typeof value.useRelativeUrl !== "undefined" && value.useRelativeUrl == "relative_url") {
+      const re = new RegExp(/^http[s]?:\/\/.*?\//);
+      location = location.replace(re, "/");
+    }
+    strictRedirects.push(value.matchURL);
+    // build the table entry. the long-string is used when `%` indicates presence of URL-encoded characters
+    if (value.redirectURL.includes("%")) {
+      entry = `  "${value.matchURL}" : {"${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}"},\n`;
+    } else {
+      entry = `  "${value.matchURL}" : "${start}|${end}|${key}|${status_code}|${cust_use_query_string}|${location}",\n`;
+    }
+  }
+  return [entry, response];
+}
+function do_csv(csv) {
   // Convert the data to String and
   // split it in an array
   const array = csv.split(/\r?\n/);
 
-  let result = { "matchRules": [] };
+  let result = { matchRules: [] };
 
   // Store headers in headers array
   let headers;
   let startIdx = 0;
   for (let i = 0; i < array.length - 1; i++) {
     // Skip comments. Lines starting with `#
-    if (array[i].startsWith('#')) {
+    if (array[i].startsWith("#")) {
       continue;
     }
 
@@ -348,14 +355,14 @@ function do_csv(csv) {
     // Create a template object to later add
     // values of the current row to it
     // TODO: make the type configurable by the `path`
-    let obj = { "type": "erMatchRule" };
+    let obj = { type: "erMatchRule" };
 
     // Declare string str as current array
     // value to change the delimiter and
     // store the generated string in a new
     // string s
     let str = array[i];
-    let s = '';
+    let s = "";
 
     // the comma separated values of a cell in quotes " " so we
     // use flag to keep track of quotes and
@@ -370,15 +377,14 @@ function do_csv(csv) {
       if (ch === '"' && flag === 0) {
         flag = 1;
         continue;
-      }
-      else if (ch === '"' && flag == 1) flag = 0
-      if (ch === ',' && flag === 0) {
+      } else if (ch === '"' && flag == 1) flag = 0;
+      if (ch === "," && flag === 0) {
         properties.push(s);
-        s = '';
+        s = "";
         continue;
       }
 
-      if (ch !== '"') s += ch
+      if (ch !== '"') s += ch;
     }
     // store the last element
     properties.push(s);
@@ -390,10 +396,8 @@ function do_csv(csv) {
 
     for (let j in headers) {
       if (properties[j].includes(",")) {
-        obj[headers[j]] = properties[j]
-          .split(",").map(item => item.trim())
-      }
-      else obj[headers[j]] = properties[j]
+        obj[headers[j]] = properties[j].split(",").map((item) => item.trim());
+      } else obj[headers[j]] = properties[j];
     }
 
     // Add the generated object to our
@@ -412,14 +416,14 @@ function treatMatches(json) {
       value.matches = [];
       if (typeof value.path !== "undefined" && value.path !== null && value.path.length !== 0) {
         let match = {};
-        if (value.path.startsWith('!')) {
+        if (value.path.startsWith("!")) {
           match.negate = true;
           value.path = value.path.substring(1);
         } else {
           match.negate = false;
         }
 
-        if (value.path.startsWith(':')) {
+        if (value.path.startsWith(":")) {
           match.caseSensitive = true;
           value.path = value.path.substring(1);
         } else {
@@ -432,19 +436,19 @@ function treatMatches(json) {
 
           value.matches.push(match);
         }
-
       }
+
       if (typeof value.query !== "undefined" && value.query !== null && value.query.length !== 0) {
         let match = {};
 
-        if (value.query.startsWith('!')) {
+        if (value.query.startsWith("!")) {
           match.negate = true;
           value.query = value.query.substring(1);
         } else {
           match.negate = false;
         }
 
-        if (value.query.startsWith(':')) {
+        if (value.query.startsWith(":")) {
           match.caseSensitive = true;
           value.query = value.query.substring(1);
         } else {
@@ -476,21 +480,24 @@ function treatMatches(json) {
 }
 
 function processLocation(redirectURL) {
+  let locationElements = redirectURL
+    .replace(/\\([1-9])/g, " re.group.$1 ")
+    .trimEnd()
+    .split(" ");
 
-  let locationElements = redirectURL.replace(/\\([1-9])/g, ' re.group.$1 ').trimEnd().split(' ');
-
-  // join the elements of the array considering long and short strings quoting, when needed
-  let locationURL = "";
+  // considering long and short strings quoting, when needed
   for (var i = 0; i < locationElements.length; i++) {
-    locationURL += i > 0 ? ` + ` : "";  // join elements
     if (locationElements[i].includes("%")) {
-      locationURL += `{"${locationElements[i]}"}`;
+      locationElements[i] = `{"${locationElements[i]}"}`;
     } else if (locationElements[i].startsWith("re.group.")) {
-      locationURL += `${locationElements[i]}`;
+      locationElements[i] = `${locationElements[i]}`;
     } else {
-      locationURL += `"${locationElements[i]}"`;
+      locationElements[i] = `"${locationElements[i]}"`;
     }
   }
+  // join the elements of the array
+  let locationURL = locationElements.join(" + ");
+
   return locationURL;
 }
 
@@ -498,8 +505,7 @@ function processLocation(redirectURL) {
 function treatTimeFrames(data) {
   for (const [key, value] of Object.entries(data.matchRules)) {
     // skip records without time frame
-    if (typeof value.start === "undefined" && typeof value.end === "undefined")
-      continue
+    if (typeof value.start === "undefined" && typeof value.end === "undefined") continue;
 
     // add 2nd end of the timeframe as `0` is omitted
     if (typeof value.start !== "undefined" && typeof value.end === "undefined") {
@@ -511,17 +517,16 @@ function treatTimeFrames(data) {
 }
 
 function isTimeFrameDefined(start, end) {
-  if (typeof start === "undefined" || typeof end === "undefined")
-    return false;
+  if (typeof start === "undefined" || typeof end === "undefined") return false;
 
-  if (start == 0 && end == 0) return false
+  if (start == 0 && end == 0) return false;
 
   return true;
 }
 
 function buildCondition(matchList, matchesIdx, matchOperand, isNegate, isRegex) {
   // 2+ match rules are treated as a logical AND
-  let newCondition = matchesIdx > 0 ? ') \n    && (' : '';
+  let newCondition = matchesIdx > 0 ? ") \n    && (" : "";
 
   // go over all space separated values
   for (let valueIdx = 0; valueIdx < matchList.length; valueIdx++) {
@@ -558,8 +563,8 @@ async function getActiveService(sid, key) {
   let beresp = await fetch(newReq, {
     backend: API_BACKEND,
     headers: {
-      "Fastly-Key": key
-    }
+      "Fastly-Key": key,
+    },
   });
 
   let resp = await beresp.json();
@@ -581,8 +586,8 @@ async function cloneActiveVersion(sid, key, ver) {
     backend: API_BACKEND,
     method: "PUT",
     headers: {
-      "Fastly-Key": key
-    }
+      "Fastly-Key": key,
+    },
   });
   let resp = await beresp.json();
 
@@ -599,8 +604,8 @@ async function deleteSnippets(sid, key, ver) {
       backend: API_BACKEND,
       method: "DELETE",
       headers: {
-        "Fastly-Key": key
-      }
+        "Fastly-Key": key,
+      },
     });
     let resp = await beresp.json();
     console.log(`Deleting snippet '${snippet}' - ${beresp.status} ${beresp.statusText}`);
@@ -611,10 +616,10 @@ async function uploadSnippets(sid, key, ver) {
   let serviceURL = `${baseURL}${sid}/version/${ver}/snippet`;
   for (const [snippet, attrs] of Object.entries(vcl_snippets)) {
     let json_snippet = {
-      "name": snippet,
-      "dynamic": 0,
-      "type": attrs.type,
-      "content": attrs.vcl
+      name: snippet,
+      dynamic: 0,
+      type: attrs.type,
+      content: attrs.vcl,
     };
 
     let body = JSON.stringify(json_snippet);
@@ -626,8 +631,8 @@ async function uploadSnippets(sid, key, ver) {
       headers: {
         "Fastly-Key": key,
         "Content-Type": JsonContentType,
-        "Accept": JsonContentType
-      }
+        Accept: JsonContentType,
+      },
     });
     // eslint-disable-next-line no-unused-vars
     let resp = await beresp.json();
@@ -643,8 +648,8 @@ async function activeVersion(sid, key, ver) {
     backend: API_BACKEND,
     method: "PUT",
     headers: {
-      "Fastly-Key": key
-    }
+      "Fastly-Key": key,
+    },
   });
   let resp = await beresp.json();
 
